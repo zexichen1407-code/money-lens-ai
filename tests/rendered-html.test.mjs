@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
-async function render() {
+async function render(path = "/", init = {}) {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
 
   return worker.fetch(
-    new Request("https://money-lens.test/", {
+    new Request("https://money-lens.test" + path, { ...init,
       headers: {
-        accept: "text/html",
+        accept: "text/html", ...Object.fromEntries(new Headers(init.headers).entries()),
         host: "money-lens.test",
         "x-forwarded-host": "money-lens.test",
         "x-forwarded-proto": "https",
@@ -44,13 +44,13 @@ test("server-renders the Money Lens upload experience and metadata", async () =>
   assert.doesNotMatch(html, /codex-preview|SkeletonPreview|react-loading-skeleton/);
 });
 
-test("keeps raw files and AI analysis local without login", async () => {
-  const [page, report, finance, ai, worker, layout, packageJson, hosting] = await Promise.all([
+test("keeps raw files local and sends only allowlisted aggregates to Gemini", async () => {
+  const [page, report, finance, ai, api, layout, packageJson, hosting] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/FinanceReport.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/finance.ts", import.meta.url), "utf8"),
-    readFile(new URL("../lib/local-ai.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/local-ai.worker.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/ai-client.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/analyze/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
@@ -59,18 +59,20 @@ test("keeps raw files and AI analysis local without login", async () => {
   assert.match(page, /parseStatement/);
   assert.match(page, /createSampleResult/);
   assert.match(page, /requestAiReport/);
-  assert.match(page, /全程本地处理 · 无需登录/);
+  assert.match(page, /原文件本地解析 · 无需登录/);
   assert.match(finance, /file\.arrayBuffer\(\)/);
   assert.match(finance, /buildAiPayload/);
   assert.match(finance, /transactionCount/);
-  assert.match(ai, /new Worker/);
+  assert.match(ai, /fetch\("\/api\/analyze"/);
   assert.match(ai, /buildAiPayload/);
-  assert.match(worker, /Qwen2\.5-0\.5B-Instruct/);
-  assert.match(worker, /只基于给定的聚合流水指标/);
-  assert.match(report, /均不会发送到本站服务器或第三方 AI 接口/);
-  assert.doesNotMatch(page + report + ai + worker, /puter|登录 Puter|AI Gateway/i);
+  assert.match(api, /gemini-2\.5-flash-lite/);
+  assert.match(api, /x-goog-api-key/);
+  assert.match(api, /sanitizeMetrics/);
+  assert.match(api, /process\.env\.GEMINI_API_KEY/);
+  assert.match(report, /仅匿名的金额、比例、类别和月度趋势会发送给 Google Gemini/);
+  assert.doesNotMatch(page + report + ai + api, /puter|登录 Puter|AI Gateway|Qwen|huggingface/i);
   assert.doesNotMatch(page + finance, /localStorage|sessionStorage/);
-  assert.doesNotMatch(packageJson, /react-loading-skeleton|@heyputer|"xlsx"/);
+  assert.doesNotMatch(packageJson, /react-loading-skeleton|@heyputer|@huggingface|"xlsx"/);
   assert.match(packageJson, /read-excel-file/);
   assert.match(packageJson, /pdfjs-dist/);
   assert.match(hosting, /"d1": null/);
@@ -78,4 +80,20 @@ test("keeps raw files and AI analysis local without login", async () => {
   assert.match(layout, /generateMetadata/);
   assert.match(layout, /og\.png/);
   await access(new URL("../public/og.png", import.meta.url));
+});
+
+test("AI route fails safely when the developer key is absent", async () => {
+  const existingKey = process.env.GEMINI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  try {
+    const response = await render("/api/analyze", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(response.status, 503);
+    assert.match(await response.text(), /AI 服务尚未配置/);
+  } finally {
+    if (existingKey) process.env.GEMINI_API_KEY = existingKey;
+  }
 });

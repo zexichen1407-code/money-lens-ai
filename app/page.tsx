@@ -14,14 +14,14 @@ import {
   fallbackReport,
   requestAiReport,
   type AiReport,
-} from "../lib/local-ai";
+} from "../lib/ai-client";
 
 type Phase = "idle" | "parsing" | "calculating" | "ai" | "done";
 
 const PHASE_COPY: Record<Exclude<Phase, "idle" | "done">, string> = {
   parsing: "正在本地读取流水…",
   calculating: "正在计算收支与消费结构…",
-  ai: "正在准备浏览器本地 AI…",
+  ai: "正在请求 AI 生成解读…",
 };
 
 export default function Home() {
@@ -36,7 +36,6 @@ export default function Home() {
   const [aiReport, setAiReport] = useState<AiReport | null>(null);
   const [format, setFormat] = useState<ParseResult["format"] | null>(null);
 
-  const [aiStatus, setAiStatus] = useState(PHASE_COPY.ai);
 
   const busy = phase !== "idle" && phase !== "done";
 
@@ -68,7 +67,7 @@ export default function Home() {
       setPhase("ai");
 
       try {
-        setAiReport(await requestAiReport(nextSummary, setAiStatus));
+        setAiReport(await requestAiReport(nextSummary));
       } catch {
         setAiReport(fallbackReport(nextSummary));
       }
@@ -89,9 +88,9 @@ export default function Home() {
     setPhase("ai");
     setError("");
     try {
-      setAiReport(await requestAiReport(summary, setAiStatus));
+      setAiReport(await requestAiReport(summary));
     } catch {
-      setError("当前设备未能运行本地 AI，基础现金流分析不受影响。你可以稍后重试。");
+      setError("免费 AI 服务暂时不可用，基础现金流分析不受影响。你可以稍后重试。");
     } finally {
       setPhase("done");
     }
@@ -116,7 +115,7 @@ export default function Home() {
         <a className="brand" href="#top" aria-label="钱镜首页">
           <span className="brand-mark">钱</span><span>钱镜</span>
         </a>
-        <div className="privacy-chip"><span /> 全程本地处理 · 无需登录</div>
+        <div className="privacy-chip"><span /> 原文件本地解析 · 无需登录</div>
       </nav>
 
       <section className="hero" id="top">
@@ -165,7 +164,7 @@ export default function Home() {
           {busy ? (
             <div className="progress-box" role="status" aria-live="polite">
               <span className="spinner" />
-              <div><strong>{phase === "ai" ? aiStatus : PHASE_COPY[phase as keyof typeof PHASE_COPY]}</strong><small>首次加载模型会较慢，之后浏览器将自动缓存</small></div>
+              <div><strong>{PHASE_COPY[phase as keyof typeof PHASE_COPY]}</strong><small>原文件不上传，仅发送匿名汇总指标</small></div>
             </div>
           ) : (
             <button

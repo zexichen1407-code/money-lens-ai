@@ -7,11 +7,6 @@ export interface AiReport {
   aiPowered: boolean;
 }
 
-interface WorkerResponse {
-  type: "progress" | "result" | "error";
-  message?: string;
-  text?: string;
-}
 
 function formatPercent(value: number | null) {
   if (value === null) return "—";
@@ -66,54 +61,35 @@ export function fallbackReport(summary: FinanceSummary): AiReport {
 
 export async function requestAiReport(
   summary: FinanceSummary,
-  onProgress?: (message: string) => void,
 ): Promise<AiReport> {
-  if (typeof Worker === "undefined") throw new Error("当前浏览器不支持本地 AI");
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 30_000);
 
-  const worker = new Worker(new URL("../app/local-ai.worker.ts", import.meta.url), {
-    type: "module",
-  });
+  let response: Response;
 
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      worker.terminate();
-      reject(new Error("本地 AI 运行超时"));
-    }, 240_000);
+  try {
+    response = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ metrics: buildAiPayload(summary) }),
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+  const text = await response.text();
 
-    const finish = () => {
-      window.clearTimeout(timeout);
-      worker.terminate();
-    };
+  if (!response.ok) {
+    let message = "AI 服务暂时不可用";
 
-    worker.onerror = () => {
-      finish();
-      reject(new Error("本地 AI 模型加载失败"));
-    };
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown };
+      if (typeof parsed.error === "string") message = parsed.error;
+    } catch {}
 
-    worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
-      const response = event.data;
-      if (response.type === "progress") {
-        onProgress?.(response.message ?? "正在准备本地 AI…");
-        return;
-      }
-      if (response.type === "error") {
-        finish();
-        reject(new Error(response.message ?? "本地 AI 运行失败"));
-        return;
-      }
-      if (response.type === "result" && response.text) {
-        try {
-          const report = parseAiJson(response.text);
-          finish();
-          resolve({ ...report, aiPowered: true });
-        } catch (error) {
-          finish();
-          reject(error);
-        }
-      }
-    };
+    throw new Error(message);
+  }
 
-    worker.postMessage({ payload: buildAiPayload(summary) });
-  });
+  return { ...parseAiJson(text), aiPowered: true };
 }
 
