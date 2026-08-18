@@ -44,11 +44,12 @@ test("server-renders the Money Lens upload experience and metadata", async () =>
   assert.doesNotMatch(html, /codex-preview|SkeletonPreview|react-loading-skeleton/);
 });
 
-test("parses uploads ephemerally and sends only allowlisted aggregates to Gemini", async () => {
-  const [page, report, finance, upload, parseApi, ai, api, layout, packageJson, hosting] = await Promise.all([
+test("parses uploads ephemerally and uses Gemini only as a guarded PDF fallback", async () => {
+  const [page, report, finance, geminiStatement, upload, parseApi, ai, api, layout, packageJson, hosting] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/FinanceReport.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/finance.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/gemini-statement.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/statement-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/parse/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/ai-client.ts", import.meta.url), "utf8"),
@@ -64,11 +65,19 @@ test("parses uploads ephemerally and sends only allowlisted aggregates to Gemini
   assert.match(page, /云端即时解析 · 无需登录/);
   assert.match(finance, /file\.arrayBuffer\(\)/);
   assert.match(finance, /import\("unpdf"\)/);
+  assert.match(finance, /parsePdfByCoordinates/);
+  assert.match(finance, /amountColumnCenter/);
+  assert.match(finance, /检测到年份被误识别为金额/);
   assert.doesNotMatch(finance, /pdfjs-dist/);
   assert.match(upload, /fetch\("\/api\/parse"/);
   assert.match(parseApi, /request\.formData\(\)/);
   assert.match(parseApi, /parseStatement\(file\)/);
+  assert.match(parseApi, /parsePdfWithGemini\(file, apiKey\)/);
   assert.match(parseApi, /Cache-Control/);
+  assert.match(geminiStatement, /inlineData/);
+  assert.match(geminiStatement, /application\/pdf/);
+  assert.match(geminiStatement, /responseSchema/);
+  assert.match(geminiStatement, /normalizeAiTransactions/);
   assert.match(finance, /buildAiPayload/);
   assert.match(finance, /transactionCount/);
   assert.match(ai, /fetch\("\/api\/analyze"/);
@@ -77,8 +86,9 @@ test("parses uploads ephemerally and sends only allowlisted aggregates to Gemini
   assert.match(api, /x-goog-api-key/);
   assert.match(api, /sanitizeMetrics/);
   assert.match(api, /process\.env\.GEMINI_API_KEY/);
-  assert.match(report, /仅在当前请求内解析，不写入数据库或对象存储/);
-  assert.doesNotMatch(page + report + ai + api, /puter|登录 Puter|AI Gateway|Qwen|huggingface/i);
+  assert.match(report, /PDF 无法可靠分列时，原始 PDF 会在本次请求中发送给 Google Gemini/);
+  assert.match(page, /PDF（含扫描件 AI 兜底）/);
+  assert.doesNotMatch(page + report + geminiStatement + ai + api, /puter|登录 Puter|AI Gateway|Qwen|huggingface/i);
   assert.doesNotMatch(page + finance, /localStorage|sessionStorage/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|@heyputer|@huggingface|"xlsx"/);
   assert.match(packageJson, /read-excel-file/);
@@ -95,13 +105,15 @@ test("parses uploads ephemerally and sends only allowlisted aggregates to Gemini
 test("upload route parses a CSV statement on the server", async () => {
   const form = new FormData();
   form.set("file", new File([
-    "交易日期,交易对方,交易金额,收支\n2026-01-01,工资,10000,收入\n2026-01-02,餐厅,88,支出\n",
+    "交易日期,交易类型,交易对方,交易金额,收/支\n2026-01-01,转账,公司,10000,收入\n2026-01-02,商户消费,餐厅,88,支出\n",
   ], "statement.csv", { type: "text/csv" }));
   const response = await render("/api/parse", { method: "POST", body: form });
   assert.equal(response.status, 200);
   const payload = await response.json();
   assert.equal(payload.result.format, "CSV");
   assert.equal(payload.result.transactions.length, 2);
+  assert.equal(payload.result.transactions.find((item) => item.direction === "income")?.amount, 10000);
+  assert.equal(payload.result.transactions.find((item) => item.direction === "expense")?.amount, 88);
 });
 
 test("AI route fails safely when the developer key is absent", async () => {

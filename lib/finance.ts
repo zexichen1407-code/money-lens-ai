@@ -98,10 +98,12 @@ function normalizeHeader(value: unknown) {
 
 function findColumn(headers: unknown[], aliases: string[]) {
   const normalizedAliases = aliases.map(normalizeHeader);
-  return headers.findIndex((header) => {
-    const normalized = normalizeHeader(header);
-    return normalizedAliases.some((alias) => normalized === alias || normalized.includes(alias));
-  });
+  const normalizedHeaders = headers.map(normalizeHeader);
+  const exactIndex = normalizedHeaders.findIndex((header) => normalizedAliases.includes(header));
+  if (exactIndex >= 0) return exactIndex;
+  return normalizedHeaders.findIndex((header) =>
+    normalizedAliases.some((alias) => alias.length >= 2 && header.includes(alias))
+  );
 }
 
 function parseMoney(value: unknown): number | null {
@@ -198,6 +200,15 @@ function parseTabularRows(rows: unknown[][], source: string): ParseResult {
   const descriptionIndexes = HEADER_ALIASES.description
     .map((alias) => findColumn(headers, [alias]))
     .filter((index, position, all) => index >= 0 && all.indexOf(index) === position);
+  const amountIndexes = [amountIndex, incomeIndex, expenseIndex].filter((index) => index >= 0);
+  if (
+    dateIndex < 0 ||
+    amountIndexes.length === 0 ||
+    amountIndexes.includes(dateIndex) ||
+    directionIndex === dateIndex
+  ) {
+    throw new Error("日期、金额或收支列发生重叠，不能可靠解析。");
+  }
 
   const transactions: Transaction[] = [];
   let ignoredRows = headerIndex;
@@ -321,6 +332,128 @@ async function parseExcel(file: File) {
   return parseTabularRows(rows as unknown[][], "Excel");
 }
 
+interface PositionedPdfText {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+}
+
+interface PdfDocumentLike {
+  numPages: number;
+  getPage(pageNumber: number): Promise<{
+    getTextContent(): Promise<{ items: unknown[] }>;
+  }>;
+}
+
+function positionedPdfText(items: unknown[]): PositionedPdfText[] {
+  return items.flatMap((item) => {
+    if (typeof item !== "object" || item === null || !("str" in item) || !("transform" in item)) {
+      return [];
+    }
+    const value = item as { str?: unknown; transform?: unknown; width?: unknown };
+    if (!Array.isArray(value.transform) || value.transform.length < 6) return [];
+    const text = String(value.str ?? "").trim();
+    const x = Number(value.transform[4]);
+    const y = Number(value.transform[5]);
+    const width = Number(value.width ?? 0);
+    if (!text || !Number.isFinite(x) || !Number.isFinite(y)) return [];
+    return [{ text, x, y, width: Number.isFinite(width) ? width : 0 }];
+  });
+}
+
+function strictPdfDate(text: string) {
+  const matches = text.match(/20\d{2}[年/.\-]\d{1,2}[月/.\-]\d{1,2}日?/g) ?? [];
+  if (matches.length !== 1 || text.length > 28) return null;
+  return toIsoDate(matches[0]);
+}
+
+function strictPdfMoney(text: string) {
+  const normalized = text.replace(/[，,]/g, "").trim();
+  if (!/^[+\-]?[¥￥]?\s?\d+(?:\.\d{2})$/.test(normalized)) return null;
+  return parseMoney(normalized);
+}
+
+function usefulPdfDescriptionToken(text: string) {
+  const compact = text.replace(/\s+/g, "");
+  if (!compact || strictPdfDate(text) || strictPdfMoney(text) !== null) return false;
+  if (/^(收入|支出|其他|\/)$/.test(compact)) return false;
+  if (/^\d{2}:\d{2}:\d{2}$/.test(compact)) return false;
+  if (/^\d{12,}$/.test(compact)) return false;
+  if (/^[A-Za-z0-9_-]{16,}$/.test(compact)) return false;
+  return !HEADER_ALIASES.amount.some((alias) => normalizeHeader(text) === normalizeHeader(alias));
+}
+
+async function parsePdfByCoordinates(document: PdfDocumentLike): Promise<ParseResult | null> {
+  const transactions: Transaction[] = [];
+  let dateCandidateCount = 0;
+  let amountColumnCenter: number | null = null;
+
+  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+    const page = await document.getPage(pageNumber);
+    const content = await page.getTextContent();
+    const items = positionedPdfText(content.items);
+    const amountHeader = items.find((item) =>
+      HEADER_ALIASES.amount.some((alias) => normalizeHeader(item.text) === normalizeHeader(alias))
+    );
+    if (amountHeader) amountColumnCenter = amountHeader.x + amountHeader.width / 2;
+    if (amountColumnCenter === null) continue;
+
+    const dateItems = items
+      .map((item) => ({ item, date: strictPdfDate(item.text) }))
+      .filter((entry): entry is { item: PositionedPdfText; date: string } => Boolean(entry.date))
+      .sort((a, b) => b.item.y - a.item.y);
+    dateCandidateCount += dateItems.length;
+
+    dateItems.forEach((entry, index) => {
+      const amountItem = items
+        .map((item) => ({ item, amount: strictPdfMoney(item.text) }))
+        .filter((candidate) =>
+          candidate.amount !== null &&
+          Math.abs(candidate.item.y - entry.item.y) <= 3 &&
+          Math.abs(candidate.item.x + candidate.item.width / 2 - amountColumnCenter!) <= 42
+        )
+        .sort((a, b) =>
+          Math.abs(a.item.x + a.item.width / 2 - amountColumnCenter!) -
+          Math.abs(b.item.x + b.item.width / 2 - amountColumnCenter!)
+        )[0];
+      if (!amountItem || amountItem.amount === null || amountItem.amount === 0) return;
+
+      const directionItem = items.find((item) =>
+        Math.abs(item.y - entry.item.y) <= 3 && /^(收入|支出|其他|\/)$/.test(item.text.trim())
+      );
+      const nextDateY = dateItems[index + 1]?.item.y;
+      const lowerY = nextDateY === undefined ? entry.item.y - 45 : nextDateY + 3;
+      const description = [...new Set(
+        items
+          .filter((item) => item.y <= entry.item.y + 3 && item.y >= lowerY)
+          .sort((a, b) => b.y - a.y || a.x - b.x)
+          .map((item) => item.text)
+          .filter(usefulPdfDescriptionToken),
+      )].join(" · ").slice(0, 120) || "PDF 交易";
+      const directionText = directionItem?.text ?? description;
+      const direction: Direction = INCOME_WORDS.test(directionText) ? "income" : "expense";
+      const amount = Math.abs(amountItem.amount);
+
+      transactions.push({
+        id: `${entry.date}-pdf-position-${pageNumber}-${index}-${amount}`,
+        date: entry.date,
+        description,
+        amount,
+        direction,
+        category: categorize(description, direction),
+        source: "PDF",
+      });
+    });
+  }
+
+  if (transactions.length < 2) return null;
+  return {
+    transactions: transactions.sort((a, b) => a.date.localeCompare(b.date)),
+    ignoredRows: Math.max(0, dateCandidateCount - transactions.length),
+    format: "PDF",
+  };
+}
 function parsePdfLines(lines: string[]): ParseResult {
   const rows: unknown[][] = lines.map((line) =>
     line.split(/\s{2,}|\t+/).map((cell) => cell.trim()).filter(Boolean)
@@ -396,6 +529,8 @@ async function parsePdf(file: File) {
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
+    const positionedResult = await parsePdfByCoordinates(document as unknown as PdfDocumentLike);
+    if (positionedResult) return positionedResult;
     const { text } = await Promise.race([
       extractText(document, { mergePages: false }),
       new Promise<never>((_, reject) => {
@@ -412,15 +547,71 @@ async function parsePdf(file: File) {
   }
 }
 
+function validateParseResult(result: ParseResult) {
+  const { transactions } = result;
+  if (transactions.length < 2) throw new Error("有效交易少于 2 笔，暂时无法形成可靠分析。");
+  if (transactions.some((item) => !Number.isFinite(item.amount) || item.amount <= 0)) {
+    throw new Error("流水中存在无效金额，已停止生成报告。");
+  }
+
+  if (transactions.length >= 10) {
+    const frequencies = new Map<number, number>();
+    transactions.forEach((item) => {
+      frequencies.set(item.amount, (frequencies.get(item.amount) ?? 0) + 1);
+    });
+    const [dominantAmount, dominantCount] = [...frequencies.entries()]
+      .sort((a, b) => b[1] - a[1])[0];
+    const years = new Set(transactions.map((item) => Number(item.date.slice(0, 4))));
+    if (dominantCount / transactions.length >= 0.8 && years.has(dominantAmount)) {
+      throw new Error("检测到年份被误识别为金额，已停止生成错误报告。");
+    }
+  }
+  return result;
+}
+
+export function normalizeAiTransactions(input: unknown): ParseResult {
+  const root = typeof input === "object" && input !== null && !Array.isArray(input)
+    ? input as Record<string, unknown>
+    : null;
+  const rows = Array.isArray(root?.transactions) ? root.transactions : [];
+  const transactions = rows.flatMap((value, index): Transaction[] => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
+    const row = value as Record<string, unknown>;
+    const date = toIsoDate(row.date);
+    const amount = parseMoney(row.amount);
+    const description = typeof row.description === "string"
+      ? row.description.trim().slice(0, 120)
+      : "AI 识别交易";
+    const directionText = String(row.direction ?? "");
+    const direction: Direction = /income|收入|入账|贷方/i.test(directionText)
+      ? "income"
+      : "expense";
+    if (!date || amount === null || amount === 0) return [];
+    return [{
+      id: `${date}-pdf-ai-${index}-${Math.abs(amount)}`,
+      date,
+      description: description || "AI 识别交易",
+      amount: Math.abs(amount),
+      direction,
+      category: categorize(description, direction),
+      source: "PDF AI",
+    }];
+  });
+  return validateParseResult({
+    transactions: transactions.sort((a, b) => a.date.localeCompare(b.date)),
+    ignoredRows: 0,
+    format: "PDF",
+  });
+}
 export async function parseStatement(file: File): Promise<ParseResult> {
   if (file.size > 10 * 1024 * 1024) {
     throw new Error("文件超过 10MB。请缩小日期范围后重新导出。");
   }
 
   const extension = file.name.split(".").pop()?.toLowerCase();
-  if (extension === "csv") return parseCsv(file);
-  if (extension === "xlsx") return parseExcel(file);
-  if (extension === "pdf") return parsePdf(file);
+  if (extension === "csv") return validateParseResult(await parseCsv(file));
+  if (extension === "xlsx") return validateParseResult(await parseExcel(file));
+  if (extension === "pdf") return validateParseResult(await parsePdf(file));
   throw new Error("暂不支持该格式。请上传 CSV、XLSX 或文本型 PDF。");
 }
 

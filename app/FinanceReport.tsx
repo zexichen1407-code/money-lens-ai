@@ -169,7 +169,7 @@ export default function FinanceReport({
         <aside className="data-note">
           <span className="lock-symbol">⌁</span>
           <h3>这次分析没有保存原文件</h3>
-          <p>文件通过加密连接上传到本站云端，仅在当前请求内解析，不写入数据库或对象存储。只有匿名的金额、比例、类别和月度趋势会发送给 Google Gemini，不包含姓名、账号、商户名称和单笔明细。</p>
+          <p>文件通过加密连接上传到本站云端，仅在当前请求内解析，不写入数据库或对象存储。CSV、XLSX 和可可靠分列的 PDF 由代码解析；PDF 无法可靠分列时，原始 PDF 会在本次请求中发送给 Google Gemini 提取交易。后续财务建议只使用汇总指标。</p>
           <dl>
             <div><dt>成功识别</dt><dd>{summary.transactionCount} 笔</dd></div>
             <div><dt>未采用行</dt><dd>{summary.ignoredRows} 行</dd></div>

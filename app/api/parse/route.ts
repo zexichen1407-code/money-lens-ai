@@ -1,4 +1,5 @@
 import { parseStatement } from "../../../lib/finance";
+import { parsePdfWithGemini } from "../../../lib/gemini-statement";
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 
@@ -15,7 +16,25 @@ export async function POST(request: Request) {
       return Response.json({ error: "没有收到可解析的流水文件。" }, { status: 400 });
     }
 
-    const result = await parseStatement(file);
+    let result;
+    try {
+      result = await parseStatement(file);
+    } catch (deterministicError) {
+      const extension = file.name.split(".").pop()?.toLowerCase();
+      const apiKey = process.env.GEMINI_API_KEY?.trim();
+      if (extension !== "pdf" || !apiKey) throw deterministicError;
+
+      try {
+        result = await parsePdfWithGemini(file, apiKey);
+      } catch (aiError) {
+        console.error(
+          "PDF extraction failed:",
+          deterministicError instanceof Error ? deterministicError.message : "Unknown parser error",
+          aiError instanceof Error ? aiError.message : "Unknown AI error",
+        );
+        throw new Error("这份 PDF 无法可靠分列，AI 识别也暂时不可用。请上传同期间的 XLSX 或 CSV。");
+      }
+    }
     return Response.json({ result }, {
       headers: { "Cache-Control": "no-store" },
     });
