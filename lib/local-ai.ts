@@ -7,51 +7,15 @@ export interface AiReport {
   aiPowered: boolean;
 }
 
-interface PuterResponse {
+interface WorkerResponse {
+  type: "progress" | "result" | "error";
+  message?: string;
   text?: string;
-  message?: { content?: string | Array<{ text?: string }> };
-}
-
-declare global {
-  interface Window {
-    puter?: {
-      ai: {
-        chat: (
-          prompt: string | Array<{ role: string; content: string }>,
-          options?: Record<string, unknown>,
-        ) => Promise<string | PuterResponse>;
-      };
-    };
-  }
 }
 
 function formatPercent(value: number | null) {
   if (value === null) return "—";
   return `${value >= 0 ? "" : "-"}${Math.abs(value * 100).toFixed(1)}%`;
-}
-
-function waitForPuter(timeout = 8_000) {
-  return new Promise<NonNullable<Window["puter"]>>((resolve, reject) => {
-    const startedAt = Date.now();
-    const poll = window.setInterval(() => {
-      if (window.puter) {
-        window.clearInterval(poll);
-        resolve(window.puter);
-      } else if (Date.now() - startedAt > timeout) {
-        window.clearInterval(poll);
-        reject(new Error("AI 服务加载超时"));
-      }
-    }, 120);
-  });
-}
-
-function extractResponseText(response: string | PuterResponse) {
-  if (typeof response === "string") return response;
-  if (typeof response.text === "string") return response.text;
-  const content = response.message?.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) return content.map((item) => item.text ?? "").join("");
-  throw new Error("AI 返回格式无法识别");
 }
 
 function parseAiJson(text: string): Omit<AiReport, "aiPowered"> {
@@ -100,19 +64,56 @@ export function fallbackReport(summary: FinanceSummary): AiReport {
   };
 }
 
-export async function requestAiReport(summary: FinanceSummary): Promise<AiReport> {
-  const puter = window.puter ?? await waitForPuter();
-  const response = await puter.ai.chat([
-    {
-      role: "system",
-      content:
-        "你是谨慎的个人现金流分析助手。只基于给定的聚合流水指标回答，不推断用户的总资产、负债、信用、投资能力或收入稳定性；不要承诺收益，不提供借贷或投资推荐。用简洁中文输出严格 JSON，不要使用 Markdown。",
-    },
-    {
-      role: "user",
-      content: `请分析以下已脱敏聚合数据：${JSON.stringify(buildAiPayload(summary))}。返回格式：{"summary":"80字内总体判断并说明边界","insights":["2到4条有数字依据的发现"],"actions":["2到4条本月可执行建议"]}。建议必须能从数据中推出；数据期不足时明确说不足。`,
-    },
-  ]);
-  return { ...parseAiJson(extractResponseText(response)), aiPowered: true };
+export async function requestAiReport(
+  summary: FinanceSummary,
+  onProgress?: (message: string) => void,
+): Promise<AiReport> {
+  if (typeof Worker === "undefined") throw new Error("当前浏览器不支持本地 AI");
+
+  const worker = new Worker(new URL("../app/local-ai.worker.ts", import.meta.url), {
+    type: "module",
+  });
+
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      worker.terminate();
+      reject(new Error("本地 AI 运行超时"));
+    }, 240_000);
+
+    const finish = () => {
+      window.clearTimeout(timeout);
+      worker.terminate();
+    };
+
+    worker.onerror = () => {
+      finish();
+      reject(new Error("本地 AI 模型加载失败"));
+    };
+
+    worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
+      const response = event.data;
+      if (response.type === "progress") {
+        onProgress?.(response.message ?? "正在准备本地 AI…");
+        return;
+      }
+      if (response.type === "error") {
+        finish();
+        reject(new Error(response.message ?? "本地 AI 运行失败"));
+        return;
+      }
+      if (response.type === "result" && response.text) {
+        try {
+          const report = parseAiJson(response.text);
+          finish();
+          resolve({ ...report, aiPowered: true });
+        } catch (error) {
+          finish();
+          reject(error);
+        }
+      }
+    };
+
+    worker.postMessage({ payload: buildAiPayload(summary) });
+  });
 }
 

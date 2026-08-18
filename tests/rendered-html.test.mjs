@@ -44,12 +44,13 @@ test("server-renders the Money Lens upload experience and metadata", async () =>
   assert.doesNotMatch(html, /codex-preview|SkeletonPreview|react-loading-skeleton/);
 });
 
-test("keeps raw files local and sends only aggregate metrics to AI", async () => {
-  const [page, report, finance, ai, layout, packageJson, hosting] = await Promise.all([
+test("keeps raw files and AI analysis local without login", async () => {
+  const [page, report, finance, ai, worker, layout, packageJson, hosting] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/FinanceReport.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/finance.ts", import.meta.url), "utf8"),
-    readFile(new URL("../lib/puter-ai.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/local-ai.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/local-ai.worker.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
@@ -58,13 +59,16 @@ test("keeps raw files local and sends only aggregate metrics to AI", async () =>
   assert.match(page, /parseStatement/);
   assert.match(page, /createSampleResult/);
   assert.match(page, /requestAiReport/);
-  assert.match(page, /https:\/\/js\.puter\.com\/v2\//);
+  assert.match(page, /全程本地处理 · 无需登录/);
   assert.match(finance, /file\.arrayBuffer\(\)/);
   assert.match(finance, /buildAiPayload/);
   assert.match(finance, /transactionCount/);
-  assert.doesNotMatch(ai, /description|merchant|account|账号|商户/);
-  assert.match(ai, /只基于给定的聚合流水指标/);
-  assert.match(report, /不含姓名、账号、商户名称和单笔明细/);
+  assert.match(ai, /new Worker/);
+  assert.match(ai, /buildAiPayload/);
+  assert.match(worker, /Qwen2\.5-0\.5B-Instruct/);
+  assert.match(worker, /只基于给定的聚合流水指标/);
+  assert.match(report, /均不会发送到本站服务器或第三方 AI 接口/);
+  assert.doesNotMatch(page + report + ai + worker, /puter|登录 Puter|AI Gateway/i);
   assert.doesNotMatch(page + finance, /localStorage|sessionStorage/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|@heyputer|"xlsx"/);
   assert.match(packageJson, /read-excel-file/);

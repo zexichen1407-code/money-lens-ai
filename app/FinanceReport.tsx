@@ -1,7 +1,7 @@
 "use client";
 
 import type { FinanceSummary, Transaction } from "../lib/finance";
-import type { AiReport } from "../lib/puter-ai";
+import type { AiReport } from "../lib/local-ai";
 
 interface FinanceReportProps {
   summary: FinanceSummary;
@@ -126,9 +126,9 @@ export default function FinanceReport({
 
       <article className="ai-card">
         <div className="ai-card-head">
-          <div><span className="ai-mark">AI</span><div><h3>钱镜解读</h3><p>免费 AI Gateway · 仅接收聚合指标</p></div></div>
+          <div><span className="ai-mark">AI</span><div><h3>钱镜解读</h3><p>浏览器本地开源模型 · 无需登录</p></div></div>
           <span className={aiReport.aiPowered ? "live-badge" : "fallback-badge"}>
-            {aiReport.aiPowered ? "Puter AI 已生成" : "本地基础版"}
+            {aiReport.aiPowered ? "本地 Qwen AI 已生成" : "本地规则版"}
           </span>
         </div>
         <blockquote>{aiReport.summary}</blockquote>
@@ -144,8 +144,8 @@ export default function FinanceReport({
         </div>
         {!aiReport.aiPowered && (
           <div className="ai-retry">
-            <p>AI 未成功连接，当前文字由本地规则生成；收支数字和图表仍来自真实流水。</p>
-            <button type="button" disabled={busy} onClick={onRetryAi}>重新请求 AI 解读</button>
+            <p>本地 AI 未能完成生成，当前文字由本地规则生成；收支数字和图表仍来自真实流水。</p>
+            <button type="button" disabled={busy} onClick={onRetryAi}>重新运行本地 AI</button>
           </div>
         )}
       </article>
@@ -169,7 +169,7 @@ export default function FinanceReport({
         <aside className="data-note">
           <span className="lock-symbol">⌁</span>
           <h3>这次分析没有保存原文件</h3>
-          <p>CSV、XLSX 和 PDF 都在你的浏览器中读取。发送给 AI 的内容不含姓名、账号、商户名称和单笔明细，只包含总额、比例、类别及月度趋势。</p>
+          <p>CSV、XLSX、PDF 和 AI 模型都在你的浏览器中运行。原文件、商户明细和聚合指标均不会发送到本站服务器或第三方 AI 接口。</p>
           <dl>
             <div><dt>成功识别</dt><dd>{summary.transactionCount} 笔</dd></div>
             <div><dt>未采用行</dt><dd>{summary.ignoredRows} 行</dd></div>

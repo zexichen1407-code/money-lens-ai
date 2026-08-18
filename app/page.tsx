@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import FinanceReport from "./FinanceReport";
 import {
   analyzeTransactions,
@@ -14,14 +14,14 @@ import {
   fallbackReport,
   requestAiReport,
   type AiReport,
-} from "../lib/puter-ai";
+} from "../lib/local-ai";
 
 type Phase = "idle" | "parsing" | "calculating" | "ai" | "done";
 
 const PHASE_COPY: Record<Exclude<Phase, "idle" | "done">, string> = {
   parsing: "正在本地读取流水…",
   calculating: "正在计算收支与消费结构…",
-  ai: "正在请求 AI 生成解读…",
+  ai: "正在准备浏览器本地 AI…",
 };
 
 export default function Home() {
@@ -36,14 +36,7 @@ export default function Home() {
   const [aiReport, setAiReport] = useState<AiReport | null>(null);
   const [format, setFormat] = useState<ParseResult["format"] | null>(null);
 
-  useEffect(() => {
-    if (window.puter || document.querySelector("script[data-puter-sdk]")) return;
-    const script = document.createElement("script");
-    script.src = "https://js.puter.com/v2/";
-    script.async = true;
-    script.dataset.puterSdk = "true";
-    document.head.appendChild(script);
-  }, []);
+  const [aiStatus, setAiStatus] = useState(PHASE_COPY.ai);
 
   const busy = phase !== "idle" && phase !== "done";
 
@@ -75,7 +68,7 @@ export default function Home() {
       setPhase("ai");
 
       try {
-        setAiReport(await requestAiReport(nextSummary));
+        setAiReport(await requestAiReport(nextSummary, setAiStatus));
       } catch {
         setAiReport(fallbackReport(nextSummary));
       }
@@ -96,9 +89,9 @@ export default function Home() {
     setPhase("ai");
     setError("");
     try {
-      setAiReport(await requestAiReport(summary));
+      setAiReport(await requestAiReport(summary, setAiStatus));
     } catch {
-      setError("AI 服务暂时不可用，基础现金流分析不受影响。你可以稍后重试。");
+      setError("当前设备未能运行本地 AI，基础现金流分析不受影响。你可以稍后重试。");
     } finally {
       setPhase("done");
     }
@@ -123,7 +116,7 @@ export default function Home() {
         <a className="brand" href="#top" aria-label="钱镜首页">
           <span className="brand-mark">钱</span><span>钱镜</span>
         </a>
-        <div className="privacy-chip"><span /> 本地解析 · 聚合后才发给 AI</div>
+        <div className="privacy-chip"><span /> 全程本地处理 · 无需登录</div>
       </nav>
 
       <section className="hero" id="top">
@@ -135,7 +128,7 @@ export default function Home() {
             再由 AI 给出有依据的改善建议。
           </p>
           <div className="trust-row" aria-label="产品特点">
-            <span>原文件不上云</span><span>无需绑定银行卡</span><span>分析后可立即清除</span>
+            <span>原文件不上云</span><span>无需注册登录</span><span>分析后可立即清除</span>
           </div>
         </div>
 
@@ -172,7 +165,7 @@ export default function Home() {
           {busy ? (
             <div className="progress-box" role="status" aria-live="polite">
               <span className="spinner" />
-              <div><strong>{PHASE_COPY[phase as keyof typeof PHASE_COPY]}</strong><small>请保持页面打开</small></div>
+              <div><strong>{phase === "ai" ? aiStatus : PHASE_COPY[phase as keyof typeof PHASE_COPY]}</strong><small>首次加载模型会较慢，之后浏览器将自动缓存</small></div>
             </div>
           ) : (
             <button
