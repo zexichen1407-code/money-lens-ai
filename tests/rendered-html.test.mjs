@@ -65,7 +65,7 @@ test("keeps raw files local and sends only allowlisted aggregates to Gemini", as
   assert.match(finance, /transactionCount/);
   assert.match(ai, /fetch\("\/api\/analyze"/);
   assert.match(ai, /buildAiPayload/);
-  assert.match(api, /gemini-2\.5-flash-lite/);
+  assert.match(api, /gemini-3\.5-flash-lite/);
   assert.match(api, /x-goog-api-key/);
   assert.match(api, /sanitizeMetrics/);
   assert.match(api, /process\.env\.GEMINI_API_KEY/);

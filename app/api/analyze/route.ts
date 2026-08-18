@@ -1,4 +1,4 @@
-const GEMINI_MODEL = "gemini-2.5-flash-lite";
+const GEMINI_MODEL = "gemini-3.5-flash-lite";
 const GEMINI_ENDPOINT =
   "https://generativelanguage.googleapis.com/v1beta/models/" +
   GEMINI_MODEL +
@@ -134,13 +134,15 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
-          temperature: 0.2,
           maxOutputTokens: 700,
           responseMimeType: "application/json",
         },
       }),
     });
-    if (!response.ok) throw new Error("Gemini API returned " + response.status);
+    if (!response.ok) {
+      console.error("Gemini API error:", response.status);
+      throw new Error("Gemini API returned " + response.status);
+    }
 
     const result = await response.json() as {
       candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
@@ -151,7 +153,11 @@ export async function POST(request: Request) {
     return Response.json(normalizeReport(text), {
       headers: { "Cache-Control": "no-store" },
     });
-  } catch {
+  } catch (error) {
+    console.error(
+      "Gemini analysis failed:",
+      error instanceof Error ? error.message : "Unknown error",
+    );
     return Response.json(
       { error: "免费 AI 额度暂时不可用，已保留基础分析。" },
       { status: 502 },

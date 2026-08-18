@@ -85,7 +85,9 @@ export async function requestAiReport(
     try {
       const parsed = JSON.parse(text) as { error?: unknown };
       if (typeof parsed.error === "string") message = parsed.error;
-    } catch {}
+    } catch {
+      // Keep the generic message when the server response is not JSON.
+    }
 
     throw new Error(message);
   }

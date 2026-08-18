@@ -126,7 +126,7 @@ export default function FinanceReport({
 
       <article className="ai-card">
         <div className="ai-card-head">
-          <div><span className="ai-mark">AI</span><div><h3>钱镜解读</h3><p>Gemini 2.5 Flash-Lite · 用户无需登录</p></div></div>
+          <div><span className="ai-mark">AI</span><div><h3>钱镜解读</h3><p>Gemini 3.5 Flash-Lite · 用户无需登录</p></div></div>
           <span className={aiReport.aiPowered ? "live-badge" : "fallback-badge"}>
             {aiReport.aiPowered ? "Gemini AI 已生成" : "本地规则版"}
           </span>
