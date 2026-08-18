@@ -318,17 +318,6 @@ async function parseExcel(file: File) {
   return parseTabularRows(rows as unknown[][], "Excel");
 }
 
-interface PdfTextItem {
-  str: string;
-  transform: number[];
-}
-
-function isPdfTextItem(value: unknown): value is PdfTextItem {
-  if (!value || typeof value !== "object") return false;
-  const item = value as Partial<PdfTextItem>;
-  return typeof item.str === "string" && Array.isArray(item.transform);
-}
-
 function parsePdfLines(lines: string[]): ParseResult {
   const rows: unknown[][] = lines.map((line) =>
     line.split(/\s{2,}|\t+/).map((cell) => cell.trim()).filter(Boolean)
@@ -392,34 +381,32 @@ function parsePdfLines(lines: string[]): ParseResult {
 }
 
 async function parsePdf(file: File) {
-  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  pdfjs.GlobalWorkerOptions.workerSrc =
-    `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/legacy/build/pdf.worker.min.mjs`;
-  const document = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
-  const lines: string[] = [];
+  const { extractText, getDocumentProxy } = await import("unpdf");
+  const document = await getDocumentProxy(
+    new Uint8Array(await file.arrayBuffer()),
+    { isEvalSupported: false, maxImageSize: 16_777_216 },
+  );
 
-  for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
-    const page = await document.getPage(pageNumber);
-    const content = await page.getTextContent();
-    const grouped = new Map<number, Array<{ x: number; text: string }>>();
-
-    content.items.filter(isPdfTextItem).forEach((item) => {
-      const y = Math.round(item.transform[5] ?? 0);
-      const x = item.transform[4] ?? 0;
-      const group = grouped.get(y) ?? [];
-      group.push({ x, text: item.str });
-      grouped.set(y, group);
-    });
-
-    [...grouped.entries()]
-      .sort((a, b) => b[0] - a[0])
-      .forEach(([, items]) => {
-        const line = items.sort((a, b) => a.x - b.x).map((item) => item.text).join("  ").trim();
-        if (line) lines.push(line);
-      });
+  if (document.numPages > 100) {
+    throw new Error("PDF 超过 100 页。请缩小日期范围后重新导出。");
   }
 
-  return parsePdfLines(lines);
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const { text } = await Promise.race([
+      extractText(document, { mergePages: false }),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error("PDF 解析超时，请缩小文件后重试。")), 20_000);
+      }),
+    ]);
+    const lines = text.flatMap((page) => page.split(/\r?\n/));
+    return parsePdfLines(lines);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    if ("destroy" in document && typeof document.destroy === "function") {
+      await document.destroy();
+    }
+  }
 }
 
 export async function parseStatement(file: File): Promise<ParseResult> {

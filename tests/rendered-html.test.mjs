@@ -39,16 +39,18 @@ test("server-renders the Money Lens upload experience and metadata", async () =>
   assert.match(html, /让每一笔流水/);
   assert.match(html, /accept=".csv,.xlsx,.pdf"/);
   assert.match(html, /使用示例数据体验完整 AI 分析/);
-  assert.match(html, /原文件不上云/);
+  assert.match(html, /原文件不保存/);
   assert.match(html, /https:\/\/money-lens\.test\/og\.png/);
   assert.doesNotMatch(html, /codex-preview|SkeletonPreview|react-loading-skeleton/);
 });
 
-test("keeps raw files local and sends only allowlisted aggregates to Gemini", async () => {
-  const [page, report, finance, ai, api, layout, packageJson, hosting] = await Promise.all([
+test("parses uploads ephemerally and sends only allowlisted aggregates to Gemini", async () => {
+  const [page, report, finance, upload, parseApi, ai, api, layout, packageJson, hosting] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/FinanceReport.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/finance.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/statement-client.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/parse/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/ai-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/analyze/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
@@ -56,11 +58,17 @@ test("keeps raw files local and sends only allowlisted aggregates to Gemini", as
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /parseStatement/);
+  assert.match(page, /uploadStatement/);
   assert.match(page, /createSampleResult/);
   assert.match(page, /requestAiReport/);
-  assert.match(page, /原文件本地解析 · 无需登录/);
+  assert.match(page, /云端即时解析 · 无需登录/);
   assert.match(finance, /file\.arrayBuffer\(\)/);
+  assert.match(finance, /import\("unpdf"\)/);
+  assert.doesNotMatch(finance, /pdfjs-dist/);
+  assert.match(upload, /fetch\("\/api\/parse"/);
+  assert.match(parseApi, /request\.formData\(\)/);
+  assert.match(parseApi, /parseStatement\(file\)/);
+  assert.match(parseApi, /Cache-Control/);
   assert.match(finance, /buildAiPayload/);
   assert.match(finance, /transactionCount/);
   assert.match(ai, /fetch\("\/api\/analyze"/);
@@ -69,17 +77,29 @@ test("keeps raw files local and sends only allowlisted aggregates to Gemini", as
   assert.match(api, /x-goog-api-key/);
   assert.match(api, /sanitizeMetrics/);
   assert.match(api, /process\.env\.GEMINI_API_KEY/);
-  assert.match(report, /仅匿名的金额、比例、类别和月度趋势会发送给 Google Gemini/);
+  assert.match(report, /仅在当前请求内解析，不写入数据库或对象存储/);
   assert.doesNotMatch(page + report + ai + api, /puter|登录 Puter|AI Gateway|Qwen|huggingface/i);
   assert.doesNotMatch(page + finance, /localStorage|sessionStorage/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|@heyputer|@huggingface|"xlsx"/);
   assert.match(packageJson, /read-excel-file/);
-  assert.match(packageJson, /pdfjs-dist/);
+  assert.match(packageJson, /unpdf/);
   assert.match(hosting, /"d1": null/);
   assert.match(hosting, /"r2": null/);
   assert.match(layout, /generateMetadata/);
   assert.match(layout, /og\.png/);
   await access(new URL("../public/og.png", import.meta.url));
+});
+
+test("upload route parses a CSV statement on the server", async () => {
+  const form = new FormData();
+  form.set("file", new File([
+    "交易日期,交易对方,交易金额,收支\n2026-01-01,工资,10000,收入\n2026-01-02,餐厅,88,支出\n",
+  ], "statement.csv", { type: "text/csv" }));
+  const response = await render("/api/parse", { method: "POST", body: form });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.result.format, "CSV");
+  assert.equal(payload.result.transactions.length, 2);
 });
 
 test("AI route fails safely when the developer key is absent", async () => {

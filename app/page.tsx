@@ -5,11 +5,11 @@ import FinanceReport from "./FinanceReport";
 import {
   analyzeTransactions,
   createSampleResult,
-  parseStatement,
   type FinanceSummary,
   type ParseResult,
   type Transaction,
 } from "../lib/finance";
+import { uploadStatement } from "../lib/statement-client";
 import {
   fallbackReport,
   requestAiReport,
@@ -19,7 +19,7 @@ import {
 type Phase = "idle" | "parsing" | "calculating" | "ai" | "done";
 
 const PHASE_COPY: Record<Exclude<Phase, "idle" | "done">, string> = {
-  parsing: "正在本地读取流水…",
+  parsing: "正在安全上传并解析流水…",
   calculating: "正在计算收支与消费结构…",
   ai: "正在请求 AI 生成解读…",
 };
@@ -57,7 +57,7 @@ export default function Home() {
 
     try {
       setPhase("parsing");
-      const result = input instanceof File ? await parseStatement(input) : input;
+      const result = input instanceof File ? await uploadStatement(input) : input;
       setPhase("calculating");
       const nextSummary = analyzeTransactions(result);
       setSummary(nextSummary);
@@ -115,7 +115,7 @@ export default function Home() {
         <a className="brand" href="#top" aria-label="钱镜首页">
           <span className="brand-mark">钱</span><span>钱镜</span>
         </a>
-        <div className="privacy-chip"><span /> 原文件本地解析 · 无需登录</div>
+        <div className="privacy-chip"><span /> 云端即时解析 · 无需登录</div>
       </nav>
 
       <section className="hero" id="top">
@@ -127,7 +127,7 @@ export default function Home() {
             再由 AI 给出有依据的改善建议。
           </p>
           <div className="trust-row" aria-label="产品特点">
-            <span>原文件不上云</span><span>无需注册登录</span><span>分析后可立即清除</span>
+            <span>加密上传解析</span><span>无需注册登录</span><span>原文件不保存</span>
           </div>
         </div>
 
@@ -164,7 +164,7 @@ export default function Home() {
           {busy ? (
             <div className="progress-box" role="status" aria-live="polite">
               <span className="spinner" />
-              <div><strong>{PHASE_COPY[phase as keyof typeof PHASE_COPY]}</strong><small>原文件不上传，仅发送匿名汇总指标</small></div>
+              <div><strong>{PHASE_COPY[phase as keyof typeof PHASE_COPY]}</strong><small>原文件仅用于本次云端解析，不保存</small></div>
             </div>
           ) : (
             <button
