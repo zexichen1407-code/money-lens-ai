@@ -313,8 +313,11 @@ async function parseCsv(file: File) {
 }
 
 async function parseExcel(file: File) {
-  const { default: readXlsxFile } = await import("read-excel-file/browser");
-  const rows = await readXlsxFile(file);
+  const { readSheet } = await import("read-excel-file/browser");
+  const rows = await readSheet(file);
+  if (!Array.isArray(rows) || rows.some((row) => !Array.isArray(row))) {
+    throw new Error("Excel 工作表结构无法识别，请重新导出后再试。");
+  }
   return parseTabularRows(rows as unknown[][], "Excel");
 }
 

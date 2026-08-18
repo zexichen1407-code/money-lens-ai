@@ -82,6 +82,8 @@ test("parses uploads ephemerally and sends only allowlisted aggregates to Gemini
   assert.doesNotMatch(page + finance, /localStorage|sessionStorage/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|@heyputer|@huggingface|"xlsx"/);
   assert.match(packageJson, /read-excel-file/);
+  assert.match(finance, /const \{ readSheet \} = await import\("read-excel-file\/browser"\)/);
+  assert.doesNotMatch(finance, /default: readXlsxFile/);
   assert.match(packageJson, /unpdf/);
   assert.match(hosting, /"d1": null/);
   assert.match(hosting, /"r2": null/);
