@@ -24,7 +24,7 @@ export async function parsePdfWithGemini(file: File, apiKey: string): Promise<Pa
     const prompt =
       "你是银行和支付流水的逐笔提取器。读取整个 PDF 的每一页，只提取真实交易行，不要提取表头、页码、统计说明或证明编号。" +
       "每笔必须包含 date、description、amount、direction。date 使用 YYYY-MM-DD；amount 只能取金额列，不得使用年份、时间、订单号、页码或账户号；" +
-      "收入写 income，支出以及收支标记为其他或斜杠的资金流动写 expense。不要合并相同交易，不要计算或猜测缺失金额。";
+      "收入写 income，支出以及收支标记为其他或斜杠的资金流动写 expense；标记为不计收支或中性交易的记录不要返回。不要合并相同交易，不要计算或猜测缺失金额。";
     const response = await fetch(GEMINI_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },

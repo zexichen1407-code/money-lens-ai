@@ -67,6 +67,9 @@ test("parses uploads ephemerally and uses Gemini only as a guarded PDF fallback"
   assert.match(finance, /import\("unpdf"\)/);
   assert.match(finance, /parsePdfByCoordinates/);
   assert.match(finance, /amountColumnCenter/);
+  assert.match(finance, /directionColumnCenter/);
+  assert.match(finance, /recognizedRowCount \/ dateCandidateCount/);
+  assert.match(finance, /不计收支\|中性/);
   assert.match(finance, /检测到年份被误识别为金额/);
   assert.doesNotMatch(finance, /pdfjs-dist/);
   assert.match(upload, /fetch\("\/api\/parse"/);
@@ -105,13 +108,14 @@ test("parses uploads ephemerally and uses Gemini only as a guarded PDF fallback"
 test("upload route parses a CSV statement on the server", async () => {
   const form = new FormData();
   form.set("file", new File([
-    "交易日期,交易类型,交易对方,交易金额,收/支\n2026-01-01,转账,公司,10000,收入\n2026-01-02,商户消费,餐厅,88,支出\n",
+    "交易日期,交易类型,交易对方,交易金额,收/支\n2026-01-01,转账,公司,10000,收入\n2026-01-02,商户消费,餐厅,88,支出\n2026-01-03,资金划转,余额宝,37800,不计收支\n",
   ], "statement.csv", { type: "text/csv" }));
   const response = await render("/api/parse", { method: "POST", body: form });
   assert.equal(response.status, 200);
   const payload = await response.json();
   assert.equal(payload.result.format, "CSV");
   assert.equal(payload.result.transactions.length, 2);
+  assert.equal(payload.result.ignoredRows, 1);
   assert.equal(payload.result.transactions.find((item) => item.direction === "income")?.amount, 10000);
   assert.equal(payload.result.transactions.find((item) => item.direction === "expense")?.amount, 88);
 });

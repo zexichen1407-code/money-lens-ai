@@ -221,6 +221,11 @@ function parseTabularRows(rows: unknown[][], source: string): ParseResult {
     const directionText = directionIndex >= 0 ? String(row[directionIndex] ?? "") : "";
     const description = rowToDescription(row, descriptionIndexes);
 
+    if (/不计收支|中性/.test(directionText)) {
+      ignoredRows += 1;
+      return;
+    }
+
     let amount: number | null = null;
     let direction: Direction | null = null;
 
@@ -377,7 +382,7 @@ function strictPdfMoney(text: string) {
 function usefulPdfDescriptionToken(text: string) {
   const compact = text.replace(/\s+/g, "");
   if (!compact || strictPdfDate(text) || strictPdfMoney(text) !== null) return false;
-  if (/^(收入|支出|其他|\/)$/.test(compact)) return false;
+  if (/^(收入|支出|其他|不计|收支|不计收支|\/)$/.test(compact)) return false;
   if (/^\d{2}:\d{2}:\d{2}$/.test(compact)) return false;
   if (/^\d{12,}$/.test(compact)) return false;
   if (/^[A-Za-z0-9_-]{16,}$/.test(compact)) return false;
@@ -387,7 +392,10 @@ function usefulPdfDescriptionToken(text: string) {
 async function parsePdfByCoordinates(document: PdfDocumentLike): Promise<ParseResult | null> {
   const transactions: Transaction[] = [];
   let dateCandidateCount = 0;
+  let recognizedRowCount = 0;
   let amountColumnCenter: number | null = null;
+  let directionColumnCenter: number | null = null;
+  let layoutHeaderFound = false;
 
   for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
     const page = await document.getPage(pageNumber);
@@ -396,7 +404,20 @@ async function parsePdfByCoordinates(document: PdfDocumentLike): Promise<ParseRe
     const amountHeader = items.find((item) =>
       HEADER_ALIASES.amount.some((alias) => normalizeHeader(item.text) === normalizeHeader(alias))
     );
-    if (amountHeader) amountColumnCenter = amountHeader.x + amountHeader.width / 2;
+    const pdfDirectionAliases = HEADER_ALIASES.direction
+      .map(normalizeHeader)
+      .filter((alias) => alias !== normalizeHeader("类型"));
+    const directionHeader = items.find((item) =>
+      pdfDirectionAliases.includes(normalizeHeader(item.text))
+    ) ?? items.find((item) => {
+      const header = normalizeHeader(item.text);
+      return pdfDirectionAliases.some((alias) => alias.length >= 2 && header.includes(alias));
+    });
+    if (amountHeader) {
+      amountColumnCenter = amountHeader.x + amountHeader.width / 2;
+      layoutHeaderFound = true;
+    }
+    if (directionHeader) directionColumnCenter = directionHeader.x + directionHeader.width / 2;
     if (amountColumnCenter === null) continue;
 
     const dateItems = items
@@ -417,13 +438,25 @@ async function parsePdfByCoordinates(document: PdfDocumentLike): Promise<ParseRe
           Math.abs(a.item.x + a.item.width / 2 - amountColumnCenter!) -
           Math.abs(b.item.x + b.item.width / 2 - amountColumnCenter!)
         )[0];
-      if (!amountItem || amountItem.amount === null || amountItem.amount === 0) return;
+      if (!amountItem || amountItem.amount === null) return;
 
-      const directionItem = items.find((item) =>
-        Math.abs(item.y - entry.item.y) <= 3 && /^(收入|支出|其他|\/)$/.test(item.text.trim())
-      );
       const nextDateY = dateItems[index + 1]?.item.y;
       const lowerY = nextDateY === undefined ? entry.item.y - 45 : nextDateY + 3;
+      const inlineDirection = items.find((item) =>
+        Math.abs(item.y - entry.item.y) <= 3 && /^(收入|支出|其他|\/)$/.test(item.text.trim())
+      );
+      const directionText = directionColumnCenter === null
+        ? inlineDirection?.text.trim() ?? ""
+        : items
+            .filter((item) =>
+              item.y <= entry.item.y + 3 &&
+              item.y >= lowerY &&
+              Math.abs(item.x + item.width / 2 - directionColumnCenter!) <= 32
+            )
+            .sort((a, b) => b.y - a.y || a.x - b.x)
+            .map((item) => item.text)
+            .join("")
+            .replace(/\s+/g, "");
       const description = [...new Set(
         items
           .filter((item) => item.y <= entry.item.y + 3 && item.y >= lowerY)
@@ -431,8 +464,23 @@ async function parsePdfByCoordinates(document: PdfDocumentLike): Promise<ParseRe
           .map((item) => item.text)
           .filter(usefulPdfDescriptionToken),
       )].join(" · ").slice(0, 120) || "PDF 交易";
-      const directionText = directionItem?.text ?? description;
-      const direction: Direction = INCOME_WORDS.test(directionText) ? "income" : "expense";
+
+      if (/不计收支|中性/.test(directionText)) {
+        recognizedRowCount += 1;
+        return;
+      }
+
+      let direction: Direction;
+      if (INCOME_WORDS.test(directionText)) direction = "income";
+      else if (EXPENSE_WORDS.test(directionText) || /^(其他|\/)$/.test(directionText)) {
+        direction = "expense";
+      } else if (directionColumnCenter !== null) {
+        return;
+      } else {
+        direction = amountItem.amount < 0 || !INCOME_WORDS.test(description) ? "expense" : "income";
+      }
+      recognizedRowCount += 1;
+      if (amountItem.amount === 0) return;
       const amount = Math.abs(amountItem.amount);
 
       transactions.push({
@@ -447,13 +495,18 @@ async function parsePdfByCoordinates(document: PdfDocumentLike): Promise<ParseRe
     });
   }
 
-  if (transactions.length < 2) return null;
+  if (!layoutHeaderFound) return null;
+  const coverage = dateCandidateCount === 0 ? 0 : recognizedRowCount / dateCandidateCount;
+  if (recognizedRowCount < 2 || coverage < 0.8) {
+    throw new Error("PDF 列识别覆盖率不足，不能可靠生成报告。");
+  }
   return {
     transactions: transactions.sort((a, b) => a.date.localeCompare(b.date)),
     ignoredRows: Math.max(0, dateCandidateCount - transactions.length),
     format: "PDF",
   };
 }
+
 function parsePdfLines(lines: string[]): ParseResult {
   const rows: unknown[][] = lines.map((line) =>
     line.split(/\s{2,}|\t+/).map((cell) => cell.trim()).filter(Boolean)
