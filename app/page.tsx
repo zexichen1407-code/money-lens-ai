@@ -112,16 +112,16 @@ export default function Home() {
   return (
     <main>
       <nav className="nav-shell" aria-label="主导航">
-        <a className="brand" href="#top" aria-label="钱镜首页">
-          <span className="brand-mark">钱</span><span>钱镜</span>
+        <a className="brand" href="#top" aria-label="阿坝农商银行内部 AI 财务分析工具首页">
+          <span className="brand-mark">阿</span><span>阿坝农商银行</span>
         </a>
-        <div className="privacy-chip"><span /> 云端即时解析 · 无需登录</div>
+        <div className="privacy-chip"><span /> 内部使用 · 无需登录</div>
       </nav>
 
       <section className="hero" id="top">
         <div className="hero-copy">
-          <p className="eyebrow">AI 财务体检 · 3 分钟完成</p>
-          <h1>让每一笔流水，<br />都说清楚钱去了哪里。</h1>
+          <p className="eyebrow">阿坝农商银行 · 内部使用</p>
+          <h1>内部 AI<br />财务分析工具</h1>
           <p className="hero-lead">
             上传银行、支付宝或微信流水，自动整理收支、识别消费结构，
             再由 AI 给出有依据的改善建议。
@@ -220,7 +220,7 @@ export default function Home() {
       )}
 
       <footer>
-        <span>钱镜 AI · 你的个人现金流观察员</span>
+        <span>阿坝农商银行 · 内部 AI 财务分析工具</span>
         <span>分析仅供财务管理参考，不构成投资、信贷或税务建议</span>
       </footer>
     </main>

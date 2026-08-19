@@ -18,9 +18,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost:3000";
   const protocol = requestHeaders.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
-  const title = "钱镜 AI｜个人流水财务体检";
-  const description = "云端即时解析银行、支付宝和微信流水，用 AI 看懂现金流与消费结构。";
-  const image = `${origin}/og.png`;
+  const title = "阿坝农商银行内部 AI 财务分析工具";
+  const description = "阿坝农商银行内部使用的流水解析与 AI 财务分析工具。";
 
   return {
     metadataBase: new URL(origin),
@@ -31,13 +30,11 @@ export async function generateMetadata(): Promise<Metadata> {
       description,
       type: "website",
       url: origin,
-      images: [{ url: image, width: 1736, height: 907, alt: "钱镜 AI 个人现金流分析" }],
     },
     twitter: {
-      card: "summary_large_image",
+      card: "summary",
       title,
       description,
-      images: [image],
     },
   };
 }

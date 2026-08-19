@@ -28,19 +28,19 @@ async function render(path = "/", init = {}) {
   );
 }
 
-test("server-renders the Money Lens upload experience and metadata", async () => {
+test("server-renders the internal Aba Rural Commercial Bank upload experience and metadata", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /<html lang="zh-CN">/);
-  assert.match(html, /<title>钱镜 AI｜个人流水财务体检<\/title>/);
-  assert.match(html, /让每一笔流水/);
+  assert.match(html, /<title>阿坝农商银行内部 AI 财务分析工具<\/title>/);
+  assert.match(html, /阿坝农商银行/);
   assert.match(html, /accept=".csv,.xlsx,.pdf"/);
   assert.match(html, /使用示例数据体验完整 AI 分析/);
   assert.match(html, /原文件不保存/);
-  assert.match(html, /https:\/\/money-lens\.test\/og\.png/);
+  assert.doesNotMatch(html, /money-lens\.test\/og\.png/);
   assert.doesNotMatch(html, /codex-preview|SkeletonPreview|react-loading-skeleton/);
 });
 
@@ -62,7 +62,7 @@ test("parses uploads ephemerally and uses Gemini only as a guarded PDF fallback"
   assert.match(page, /uploadStatement/);
   assert.match(page, /createSampleResult/);
   assert.match(page, /requestAiReport/);
-  assert.match(page, /云端即时解析 · 无需登录/);
+  assert.match(page, /内部使用 · 无需登录/);
   assert.match(finance, /file\.arrayBuffer\(\)/);
   assert.match(finance, /import\("unpdf"\)/);
   assert.match(finance, /parsePdfByCoordinates/);
@@ -101,7 +101,7 @@ test("parses uploads ephemerally and uses Gemini only as a guarded PDF fallback"
   assert.match(hosting, /"d1": null/);
   assert.match(hosting, /"r2": null/);
   assert.match(layout, /generateMetadata/);
-  assert.match(layout, /og\.png/);
+  assert.doesNotMatch(layout, /og\.png/);
   await access(new URL("../public/og.png", import.meta.url));
 });
 
