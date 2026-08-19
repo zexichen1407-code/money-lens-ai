@@ -527,8 +527,14 @@ function parsePdfLines(lines: string[]): ParseResult {
         return;
       }
 
+      const moneyText = moneyMatches[0];
+      if (!moneyText) {
+        ignoredRows += 1;
+        return;
+      }
+
       const date = toIsoDate(dateMatch[1]);
-      const rawAmount = parseMoney(moneyMatches[0]);
+      const rawAmount = parseMoney(moneyText);
       if (!date || rawAmount === null || rawAmount === 0) {
         ignoredRows += 1;
         return;
@@ -536,7 +542,7 @@ function parsePdfLines(lines: string[]): ParseResult {
 
       const description = line
         .replace(dateMatch[0], "")
-        .replace(moneyMatches[0], "")
+        .replace(moneyText, "")
         .replace(/\s+/g, " ")
         .trim()
         .slice(0, 120) || "PDF 交易";
@@ -573,7 +579,7 @@ async function parsePdf(file: File) {
   const { extractText, getDocumentProxy } = await import("unpdf");
   const document = await getDocumentProxy(
     new Uint8Array(await file.arrayBuffer()),
-    { isEvalSupported: false, maxImageSize: 16_777_216 },
+    { isEvalSupported: false, maxImageSize: 16_777_216 } as Parameters<typeof getDocumentProxy>[1],
   );
 
   if (document.numPages > 100) {
@@ -657,8 +663,8 @@ export function normalizeAiTransactions(input: unknown): ParseResult {
   });
 }
 export async function parseStatement(file: File): Promise<ParseResult> {
-  if (file.size > 10 * 1024 * 1024) {
-    throw new Error("文件超过 10MB。请缩小日期范围后重新导出。");
+  if (file.size > 4 * 1024 * 1024) {
+    throw new Error("文件超过 4MB。请缩小日期范围后重新导出。");
   }
 
   const extension = file.name.split(".").pop()?.toLowerCase();

@@ -1,12 +1,14 @@
 import { parseStatement } from "../../../lib/finance";
 import { parsePdfWithGemini } from "../../../lib/gemini-statement";
 
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+export const maxDuration = 60;
+
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024;
 
 export async function POST(request: Request) {
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (contentLength > MAX_UPLOAD_BYTES + 100_000) {
-    return Response.json({ error: "文件超过 10MB。请缩小日期范围后重新导出。" }, { status: 413 });
+    return Response.json({ error: "文件超过 4MB。请缩小日期范围后重新导出。" }, { status: 413 });
   }
 
   try {

@@ -158,7 +158,7 @@ export default function Home() {
           >
             <span className="upload-icon">{summary ? "✓" : "↑"}</span>
             <strong>{sourceLabel || "点击选择，或拖入文件"}</strong>
-            <small>支持 CSV、XLSX、PDF（含扫描件 AI 兜底）· 单个文件不超过 10MB</small>
+            <small>支持 CSV、XLSX、PDF（含扫描件 AI 兜底）· 单个文件不超过 4MB</small>
           </button>
 
           {busy ? (

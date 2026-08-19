@@ -1,4 +1,5 @@
 const GEMINI_MODEL = "gemini-3.5-flash-lite";
+export const maxDuration = 60;
 const GEMINI_ENDPOINT =
   "https://generativelanguage.googleapis.com/v1beta/models/" +
   GEMINI_MODEL +
