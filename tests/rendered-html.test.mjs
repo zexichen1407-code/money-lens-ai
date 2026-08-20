@@ -28,6 +28,44 @@ async function render(path = "/", init = {}) {
   );
 }
 
+function createSignedBankPdf() {
+  const stream = [
+    "BT",
+    "/F1 10 Tf",
+    "1 0 0 1 50 750 Tm (date) Tj",
+    "1 0 0 1 150 750 Tm (amount) Tj",
+    "1 0 0 1 250 750 Tm (details) Tj",
+    "1 0 0 1 50 730 Tm (20260531) Tj",
+    "1 0 0 1 150 730 Tm (+100.00) Tj",
+    "1 0 0 1 250 730 Tm (salary) Tj",
+    "1 0 0 1 50 710 Tm (20260601) Tj",
+    "1 0 0 1 150 710 Tm (-25.00) Tj",
+    "1 0 0 1 250 710 Tm (coffee) Tj",
+    "ET",
+  ].join("\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+  ];
+
+  let body = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(Buffer.byteLength(body));
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = Buffer.byteLength(body);
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  offsets.slice(1).forEach((offset) => {
+    body += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  });
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
+  return Buffer.from(body);
+}
+
 test("server-renders the internal Aba Rural Commercial Bank upload experience and metadata", async () => {
   const response = await render();
   assert.equal(response.status, 200);
@@ -44,12 +82,11 @@ test("server-renders the internal Aba Rural Commercial Bank upload experience an
   assert.doesNotMatch(html, /codex-preview|SkeletonPreview|react-loading-skeleton/);
 });
 
-test("parses uploads ephemerally and uses Gemini only as a guarded PDF fallback", async () => {
-  const [page, report, finance, geminiStatement, upload, parseApi, ai, api, layout, packageJson, hosting] = await Promise.all([
+test("parses every uploaded file with local code and sends only anonymous summaries to Qwen", async () => {
+  const [page, report, finance, upload, parseApi, ai, api, layout, packageJson, hosting] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/FinanceReport.tsx", import.meta.url), "utf8"),
     readFile(new URL("../lib/finance.ts", import.meta.url), "utf8"),
-    readFile(new URL("../lib/gemini-statement.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/statement-client.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/parse/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/ai-client.ts", import.meta.url), "utf8"),
@@ -75,23 +112,19 @@ test("parses uploads ephemerally and uses Gemini only as a guarded PDF fallback"
   assert.match(upload, /fetch\("\/api\/parse"/);
   assert.match(parseApi, /request\.formData\(\)/);
   assert.match(parseApi, /parseStatement\(file\)/);
-  assert.match(parseApi, /parsePdfWithGemini\(file, apiKey\)/);
   assert.match(parseApi, /Cache-Control/);
-  assert.match(geminiStatement, /inlineData/);
-  assert.match(geminiStatement, /application\/pdf/);
-  assert.match(geminiStatement, /responseSchema/);
-  assert.match(geminiStatement, /normalizeAiTransactions/);
+  assert.doesNotMatch(parseApi, /fetch\(|GEMINI|DASHSCOPE|parsePdfWith/i);
   assert.match(finance, /buildAiPayload/);
   assert.match(finance, /transactionCount/);
   assert.match(ai, /fetch\("\/api\/analyze"/);
   assert.match(ai, /buildAiPayload/);
-  assert.match(api, /gemini-3\.5-flash-lite/);
-  assert.match(api, /x-goog-api-key/);
+  assert.match(api, /qwen3\.6-flash/);
+  assert.match(api, /dashscope\.aliyuncs\.com/);
   assert.match(api, /sanitizeMetrics/);
-  assert.match(api, /process\.env\.GEMINI_API_KEY/);
-  assert.match(report, /PDF 无法可靠分列时，原始 PDF 会在本次请求中发送给 Google Gemini/);
-  assert.match(page, /PDF（含扫描件 AI 兜底）/);
-  assert.doesNotMatch(page + report + geminiStatement + ai + api, /puter|登录 Puter|AI Gateway|Qwen|huggingface/i);
+  assert.match(api, /process\.env\.DASHSCOPE_API_KEY/);
+  assert.match(report, /不会发送给任何 AI/);
+  assert.match(page, /带文字层的 PDF/);
+  assert.doesNotMatch(page + report + ai + api, /puter|登录 Puter|AI Gateway|Gemini|huggingface/i);
   assert.doesNotMatch(page + finance, /localStorage|sessionStorage/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton|@heyputer|@huggingface|"xlsx"/);
   assert.match(packageJson, /read-excel-file/);
@@ -120,9 +153,21 @@ test("upload route parses a CSV statement on the server", async () => {
   assert.equal(payload.result.transactions.find((item) => item.direction === "expense")?.amount, 88);
 });
 
+test("upload route parses compact dates and signed amounts in a bank PDF", async () => {
+  const form = new FormData();
+  form.set("file", new File([createSignedBankPdf()], "bank-statement.pdf", { type: "application/pdf" }));
+  const response = await render("/api/parse", { method: "POST", body: form });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.result.format, "PDF");
+  assert.equal(payload.result.transactions.length, 2);
+  assert.equal(payload.result.transactions.find((item) => item.direction === "income")?.amount, 100);
+  assert.equal(payload.result.transactions.find((item) => item.direction === "expense")?.amount, 25);
+});
+
 test("AI route fails safely when the developer key is absent", async () => {
-  const existingKey = process.env.GEMINI_API_KEY;
-  delete process.env.GEMINI_API_KEY;
+  const existingKey = process.env.DASHSCOPE_API_KEY;
+  delete process.env.DASHSCOPE_API_KEY;
   try {
     const response = await render("/api/analyze", {
       method: "POST",
@@ -132,6 +177,6 @@ test("AI route fails safely when the developer key is absent", async () => {
     assert.equal(response.status, 503);
     assert.match(await response.text(), /AI 服务尚未配置/);
   } finally {
-    if (existingKey) process.env.GEMINI_API_KEY = existingKey;
+    if (existingKey) process.env.DASHSCOPE_API_KEY = existingKey;
   }
 });

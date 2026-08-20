@@ -126,9 +126,9 @@ export default function FinanceReport({
 
       <article className="ai-card">
         <div className="ai-card-head">
-          <div><span className="ai-mark">AI</span><div><h3>内部 AI 财务解读</h3><p>Gemini 3.5 Flash-Lite · 用户无需登录</p></div></div>
+          <div><span className="ai-mark">AI</span><div><h3>内部 AI 财务解读</h3><p>通义千问 Qwen · 用户无需登录</p></div></div>
           <span className={aiReport.aiPowered ? "live-badge" : "fallback-badge"}>
-            {aiReport.aiPowered ? "Gemini AI 已生成" : "本地规则版"}
+            {aiReport.aiPowered ? "百炼 AI 已生成" : "本地规则版"}
           </span>
         </div>
         <blockquote>{aiReport.summary}</blockquote>
@@ -169,7 +169,7 @@ export default function FinanceReport({
         <aside className="data-note">
           <span className="lock-symbol">⌁</span>
           <h3>这次分析没有保存原文件</h3>
-          <p>文件通过加密连接上传到本站云端，仅在当前请求内解析，不写入数据库或对象存储。CSV、XLSX 和可可靠分列的 PDF 由代码解析；PDF 无法可靠分列时，原始 PDF 会在本次请求中发送给 Google Gemini 提取交易。后续财务建议只使用汇总指标。</p>
+          <p>文件通过加密连接上传到本站云端，仅在当前请求内由代码解析，不写入数据库或对象存储，也不会发送给任何 AI。后续财务建议只向阿里云百炼发送匿名汇总指标，不包含姓名、账号、商户和单笔明细。</p>
           <dl>
             <div><dt>成功识别</dt><dd>{summary.transactionCount} 笔</dd></div>
             <div><dt>未采用行</dt><dd>{summary.ignoredRows} 行</dd></div>

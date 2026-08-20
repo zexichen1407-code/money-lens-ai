@@ -1,9 +1,6 @@
-const GEMINI_MODEL = "gemini-3.5-flash-lite";
+const QWEN_MODEL = "qwen3.6-flash";
 export const maxDuration = 60;
-const GEMINI_ENDPOINT =
-  "https://generativelanguage.googleapis.com/v1beta/models/" +
-  GEMINI_MODEL +
-  ":generateContent";
+const QWEN_ENDPOINT = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
 
 const ALLOWED_CATEGORIES = new Set([
   "餐饮", "交通", "购物", "居住", "娱乐",
@@ -108,7 +105,7 @@ function normalizeReport(text: string) {
 }
 
 export async function POST(request: Request) {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  const apiKey = process.env.DASHSCOPE_API_KEY?.trim();
   if (!apiKey) {
     return Response.json({ error: "AI 服务尚未配置，请联系站点管理员。" }, { status: 503 });
   }
@@ -129,34 +126,36 @@ export async function POST(request: Request) {
       '{"summary":"80字内总体判断并说明边界","insights":["2到4条有数字依据的发现"],"actions":["2到4条本月可执行建议"]}。数据不足时明确说明。汇总指标：' +
       JSON.stringify(metrics);
 
-    const response = await fetch(GEMINI_ENDPOINT, {
+    const response = await fetch(QWEN_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + apiKey,
+      },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          maxOutputTokens: 700,
-          responseMimeType: "application/json",
-        },
+        model: QWEN_MODEL,
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" },
+        max_tokens: 700,
+        temperature: 0.2,
+        enable_thinking: false,
       }),
     });
     if (!response.ok) {
-      console.error("Gemini API error:", response.status);
-      throw new Error("Gemini API returned " + response.status);
+      console.error("Qwen API error:", response.status);
+      throw new Error("Qwen API returned " + response.status);
     }
 
     const result = await response.json() as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      choices?: Array<{ message?: { content?: string } }>;
     };
-    const text = result.candidates?.[0]?.content?.parts
-      ?.map((part) => part.text ?? "")
-      .join("") ?? "";
+    const text = result.choices?.[0]?.message?.content ?? "";
     return Response.json(normalizeReport(text), {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
     console.error(
-      "Gemini analysis failed:",
+      "Qwen analysis failed:",
       error instanceof Error ? error.message : "Unknown error",
     );
     return Response.json(

@@ -133,11 +133,13 @@ function toIsoDate(value: unknown): string | null {
 
   const text = String(value ?? "").trim();
   if (!text) return null;
-  const normalized = text
-    .replace(/[年/.]/g, "-")
-    .replace(/月/g, "-")
-    .replace(/日/g, "")
-    .replace(/\s+.*/, "");
+  const normalized = /^20\d{6}$/.test(text)
+    ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}`
+    : text
+        .replace(/[年/.]/g, "-")
+        .replace(/月/g, "-")
+        .replace(/日/g, "")
+        .replace(/\s+.*/, "");
   const match = normalized.match(/(20\d{2})-(\d{1,2})-(\d{1,2})/);
   if (!match) return null;
   const [, year, month, day] = match;
@@ -368,6 +370,7 @@ function positionedPdfText(items: unknown[]): PositionedPdfText[] {
 }
 
 function strictPdfDate(text: string) {
+  if (/^20\d{6}$/.test(text)) return toIsoDate(text);
   const matches = text.match(/20\d{2}[年/.\-]\d{1,2}[月/.\-]\d{1,2}日?/g) ?? [];
   if (matches.length !== 1 || text.length > 28) return null;
   return toIsoDate(matches[0]);
@@ -384,6 +387,7 @@ function usefulPdfDescriptionToken(text: string) {
   if (!compact || strictPdfDate(text) || strictPdfMoney(text) !== null) return false;
   if (/^(收入|支出|其他|不计|收支|不计收支|\/)$/.test(compact)) return false;
   if (/^\d{2}:\d{2}:\d{2}$/.test(compact)) return false;
+  if (/^(?:[01]\d|2[0-3])[0-5]\d[0-5]\d$/.test(compact)) return false;
   if (/^\d{12,}$/.test(compact)) return false;
   if (/^[A-Za-z0-9_-]{16,}$/.test(compact)) return false;
   return !HEADER_ALIASES.amount.some((alias) => normalizeHeader(text) === normalizeHeader(alias));
@@ -471,7 +475,10 @@ async function parsePdfByCoordinates(document: PdfDocumentLike): Promise<ParseRe
       }
 
       let direction: Direction;
-      if (INCOME_WORDS.test(directionText)) direction = "income";
+      const explicitAmountSign = amountItem.item.text.replace(/\s+/g, "").match(/^[+\-]/)?.[0];
+      if (directionColumnCenter === null && explicitAmountSign) {
+        direction = explicitAmountSign === "-" ? "expense" : "income";
+      } else if (INCOME_WORDS.test(directionText)) direction = "income";
       else if (EXPENSE_WORDS.test(directionText) || /^(其他|\/)$/.test(directionText)) {
         direction = "expense";
       } else if (directionColumnCenter !== null) {

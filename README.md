@@ -9,7 +9,7 @@
 - 自动识别收入、流出、转账和消费类别
 - 计算净现金流、结余率、月度趋势及现金流评分
 - 展示消费结构、最近交易和数据质量
-- 使用 Gemini 3.5 Flash-Lite 免费 API 生成中文洞察与行动建议
+- 使用阿里云百炼 Qwen 生成中文洞察与行动建议
 - 用户无需注册、登录或提供任何 AI 平台账号
 - AI 不可用时自动回退到本地规则分析
 - 支持打印或保存分析报告为 PDF
@@ -19,9 +19,9 @@
 
 - 原始文件通过 HTTPS 上传到本站云端，仅在当前请求内解析，不写入数据库或对象存储。
 - 不使用数据库、对象存储、localStorage 或 sessionStorage 保存流水。
-- 仅匿名汇总金额、比例、固定消费类别和月度趋势会发送给 Google Gemini；姓名、账号、商户名称和单笔明细不会发送。
-- 客户不需要登录或提供 API Key；站长需要在后端配置一次 GEMINI_API_KEY。
-- Gemini 免费层可能使用输入和输出改进 Google 产品。
+- 原始文件只在本站服务器当前请求内由代码解析，不会发送给任何 AI。
+- 仅匿名汇总金额、比例、固定消费类别和月度趋势会发送给阿里云百炼 Qwen；姓名、账号、商户名称和单笔明细不会发送。
+- 客户不需要登录或提供 API Key；站长需要在后端配置一次 DASHSCOPE_API_KEY。
 
 ## 当前限制
 
@@ -39,7 +39,7 @@
 ```bash
 npm install
 Copy-Item .env.example .env.local
-# 编辑 .env.local，填写 GEMINI_API_KEY
+# 编辑 .env.local，填写 DASHSCOPE_API_KEY
 npm run dev
 ```
 

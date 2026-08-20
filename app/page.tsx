@@ -158,13 +158,13 @@ export default function Home() {
           >
             <span className="upload-icon">{summary ? "✓" : "↑"}</span>
             <strong>{sourceLabel || "点击选择，或拖入文件"}</strong>
-            <small>支持 CSV、XLSX、PDF（含扫描件 AI 兜底）· 单个文件不超过 4MB</small>
+            <small>支持 CSV、XLSX、带文字层的 PDF · 单个文件不超过 4MB</small>
           </button>
 
           {busy ? (
             <div className="progress-box" role="status" aria-live="polite">
               <span className="spinner" />
-              <div><strong>{PHASE_COPY[phase as keyof typeof PHASE_COPY]}</strong><small>原文件不保存；PDF 无法可靠分列时会交由 Gemini 识别</small></div>
+              <div><strong>{PHASE_COPY[phase as keyof typeof PHASE_COPY]}</strong><small>原文件不保存，也不会发送给任何 AI</small></div>
             </div>
           ) : (
             <button
