@@ -223,7 +223,7 @@ function parseTabularRows(rows: unknown[][], source: string): ParseResult {
     const directionText = directionIndex >= 0 ? String(row[directionIndex] ?? "") : "";
     const description = rowToDescription(row, descriptionIndexes);
 
-    if (/不计收支|中性/.test(directionText)) {
+    if (/不计收支|中性|^\s*(?:其他|\/)\s*$/.test(directionText)) {
       ignoredRows += 1;
       return;
     }
@@ -377,7 +377,7 @@ function strictPdfDate(text: string) {
 }
 
 function strictPdfMoney(text: string) {
-  const normalized = text.replace(/[，,]/g, "").trim();
+  const normalized = text.replace(/[，,]/g, "").replace(/\p{M}/gu, "").trim();
   if (!/^[+\-]?[¥￥]?\s?\d+(?:\.\d{2})$/.test(normalized)) return null;
   return parseMoney(normalized);
 }
@@ -469,7 +469,7 @@ async function parsePdfByCoordinates(document: PdfDocumentLike): Promise<ParseRe
           .filter(usefulPdfDescriptionToken),
       )].join(" · ").slice(0, 120) || "PDF 交易";
 
-      if (/不计收支|中性/.test(directionText)) {
+      if (/不计收支|中性|^\s*(?:其他|\/)\s*$/.test(directionText)) {
         recognizedRowCount += 1;
         return;
       }
@@ -479,7 +479,7 @@ async function parsePdfByCoordinates(document: PdfDocumentLike): Promise<ParseRe
       if (directionColumnCenter === null && explicitAmountSign) {
         direction = explicitAmountSign === "-" ? "expense" : "income";
       } else if (INCOME_WORDS.test(directionText)) direction = "income";
-      else if (EXPENSE_WORDS.test(directionText) || /^(其他|\/)$/.test(directionText)) {
+      else if (EXPENSE_WORDS.test(directionText)) {
         direction = "expense";
       } else if (directionColumnCenter !== null) {
         return;
@@ -589,8 +589,8 @@ async function parsePdf(file: File) {
     { isEvalSupported: false, maxImageSize: 16_777_216 } as Parameters<typeof getDocumentProxy>[1],
   );
 
-  if (document.numPages > 100) {
-    throw new Error("PDF 超过 100 页。请缩小日期范围后重新导出。");
+  if (document.numPages > 1000) {
+    throw new Error("PDF 超过 1000 页。请缩小日期范围后重新导出。");
   }
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;

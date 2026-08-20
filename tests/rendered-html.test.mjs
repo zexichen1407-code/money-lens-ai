@@ -34,13 +34,20 @@ function createSignedBankPdf() {
     "/F1 10 Tf",
     "1 0 0 1 50 750 Tm (date) Tj",
     "1 0 0 1 150 750 Tm (amount) Tj",
-    "1 0 0 1 250 750 Tm (details) Tj",
+    "1 0 0 1 220 750 Tm (direction) Tj",
+    "1 0 0 1 320 750 Tm (details) Tj",
     "1 0 0 1 50 730 Tm (20260531) Tj",
     "1 0 0 1 150 730 Tm (+100.00) Tj",
-    "1 0 0 1 250 730 Tm (salary) Tj",
+    "1 0 0 1 220 730 Tm (credit) Tj",
+    "1 0 0 1 320 730 Tm (salary) Tj",
     "1 0 0 1 50 710 Tm (20260601) Tj",
     "1 0 0 1 150 710 Tm (-25.00) Tj",
-    "1 0 0 1 250 710 Tm (coffee) Tj",
+    "1 0 0 1 220 710 Tm (debit) Tj",
+    "1 0 0 1 320 710 Tm (coffee) Tj",
+    "1 0 0 1 50 690 Tm (20260602) Tj",
+    "1 0 0 1 150 690 Tm (+999.00) Tj",
+    "1 0 0 1 220 690 Tm (/) Tj",
+    "1 0 0 1 320 690 Tm (neutral) Tj",
     "ET",
   ].join("\n");
   const objects = [
@@ -108,6 +115,8 @@ test("parses every uploaded file with local code and sends only anonymous summar
   assert.match(finance, /recognizedRowCount \/ dateCandidateCount/);
   assert.match(finance, /不计收支\|中性/);
   assert.match(finance, /检测到年份被误识别为金额/);
+  assert.match(finance, /document\.numPages > 1000/);
+  assert.match(finance, /replace\(\/\\p\{M\}\/gu/);
   assert.doesNotMatch(finance, /pdfjs-dist/);
   assert.match(upload, /fetch\("\/api\/parse"/);
   assert.match(parseApi, /request\.formData\(\)/);
@@ -141,7 +150,7 @@ test("parses every uploaded file with local code and sends only anonymous summar
 test("upload route parses a CSV statement on the server", async () => {
   const form = new FormData();
   form.set("file", new File([
-    "交易日期,交易类型,交易对方,交易金额,收/支\n2026-01-01,转账,公司,10000,收入\n2026-01-02,商户消费,餐厅,88,支出\n2026-01-03,资金划转,余额宝,37800,不计收支\n",
+    "交易日期,交易类型,交易对方,交易金额,收/支\n2026-01-01,转账,公司,10000,收入\n2026-01-02,商户消费,餐厅,88,支出\n2026-01-03,资金划转,余额宝,37800,其他\n",
   ], "statement.csv", { type: "text/csv" }));
   const response = await render("/api/parse", { method: "POST", body: form });
   assert.equal(response.status, 200);
