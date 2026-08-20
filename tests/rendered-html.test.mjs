@@ -83,6 +83,8 @@ test("server-renders the internal Aba Rural Commercial Bank upload experience an
   assert.match(html, /<title>阿坝农商银行内部 AI 财务分析工具<\/title>/);
   assert.match(html, /阿坝农商银行/);
   assert.match(html, /accept=".csv,.xlsx,.pdf"/);
+  assert.match(html, /multiple=""/);
+  assert.match(html, /最多 3 个/);
   assert.match(html, /使用示例数据体验完整 AI 分析/);
   assert.match(html, /原文件不保存/);
   assert.doesNotMatch(html, /money-lens\.test\/og\.png/);
@@ -103,7 +105,7 @@ test("parses every uploaded file with local code and sends only anonymous summar
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /uploadStatement/);
+  assert.match(page, /uploadStatements/);
   assert.match(page, /createSampleResult/);
   assert.match(page, /requestAiReport/);
   assert.match(page, /内部使用 · 无需登录/);
@@ -119,7 +121,10 @@ test("parses every uploaded file with local code and sends only anonymous summar
   assert.match(finance, /replace\(\/\\p\{M\}\/gu/);
   assert.doesNotMatch(finance, /pdfjs-dist/);
   assert.match(upload, /fetch\("\/api\/parse"/);
+  assert.match(upload, /form\.append\("files"/);
   assert.match(parseApi, /request\.formData\(\)/);
+  assert.match(parseApi, /form\.getAll\("files"\)/);
+  assert.match(parseApi, /MAX_STATEMENT_FILES/);
   assert.match(parseApi, /parseStatement\(file\)/);
   assert.match(parseApi, /Cache-Control/);
   assert.doesNotMatch(parseApi, /fetch\(|GEMINI|DASHSCOPE|parsePdfWith/i);
@@ -172,6 +177,37 @@ test("upload route parses compact dates and signed amounts in a bank PDF", async
   assert.equal(payload.result.transactions.length, 2);
   assert.equal(payload.result.transactions.find((item) => item.direction === "income")?.amount, 100);
   assert.equal(payload.result.transactions.find((item) => item.direction === "expense")?.amount, 25);
+});
+
+test("upload route combines up to three statement files", async () => {
+  const form = new FormData();
+  form.append("files", new File([
+    "交易日期,交易对方,交易金额,收/支\n2026-01-01,公司,10000,收入\n2026-01-02,餐厅,88,支出\n",
+  ], "january.csv", { type: "text/csv" }));
+  form.append("files", new File([
+    "交易日期,交易对方,交易金额,收/支\n2026-02-01,公司,11000,收入\n2026-02-02,超市,120,支出\n",
+  ], "february.csv", { type: "text/csv" }));
+
+  const response = await render("/api/parse", { method: "POST", body: form });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.result.format, "CSV");
+  assert.equal(payload.result.transactions.length, 4);
+  assert.equal(new Set(payload.result.transactions.map((item) => item.id)).size, 4);
+  assert.deepEqual(payload.result.transactions.map((item) => item.date), [
+    "2026-01-01", "2026-01-02", "2026-02-01", "2026-02-02",
+  ]);
+});
+
+test("upload route rejects a fourth statement file", async () => {
+  const form = new FormData();
+  for (let index = 0; index < 4; index += 1) {
+    form.append("files", new File(["交易日期,交易金额,收/支\n"], `statement-${index}.csv`, { type: "text/csv" }));
+  }
+
+  const response = await render("/api/parse", { method: "POST", body: form });
+  assert.equal(response.status, 400);
+  assert.match(await response.text(), /最多上传 3 个/);
 });
 
 test("AI route fails safely when the developer key is absent", async () => {

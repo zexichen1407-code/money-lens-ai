@@ -1,0 +1,2 @@
+export const MAX_STATEMENT_FILES = 3;
+export const MAX_STATEMENT_FILE_BYTES = 4 * 1024 * 1024;

@@ -26,7 +26,7 @@ export interface Transaction {
 export interface ParseResult {
   transactions: Transaction[];
   ignoredRows: number;
-  format: "CSV" | "Excel" | "PDF" | "示例";
+  format: "CSV" | "Excel" | "PDF" | "混合" | "示例";
 }
 
 export interface MonthlyPoint {

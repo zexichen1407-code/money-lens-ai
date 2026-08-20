@@ -9,7 +9,8 @@ import {
   type ParseResult,
   type Transaction,
 } from "../lib/finance";
-import { uploadStatement } from "../lib/statement-client";
+import { uploadStatements } from "../lib/statement-client";
+import { MAX_STATEMENT_FILES, MAX_STATEMENT_FILE_BYTES } from "../lib/upload-constraints";
 import {
   fallbackReport,
   requestAiReport,
@@ -26,7 +27,7 @@ const PHASE_COPY: Record<Exclude<Phase, "idle" | "done">, string> = {
 
 export default function Home() {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [sourceLabel, setSourceLabel] = useState("");
   const [phase, setPhase] = useState<Phase>("idle");
   const [dragging, setDragging] = useState(false);
@@ -39,25 +40,49 @@ export default function Home() {
 
   const busy = phase !== "idle" && phase !== "done";
 
-  function chooseFile(file?: File) {
-    if (!file) return;
-    setSelectedFile(file);
-    setSourceLabel(file.name);
+  function rejectFiles(message: string) {
+    setSelectedFiles([]);
+    setSourceLabel("");
     setSummary(null);
     setAiReport(null);
     setTransactions([]);
+    setFormat(null);
+    setError(message);
+    setPhase("idle");
+    if (inputRef.current) inputRef.current.value = "";
+  }
+
+  function chooseFiles(fileList?: FileList | File[]) {
+    const files = Array.from(fileList ?? []);
+    if (files.length < 1) return;
+    if (files.length > MAX_STATEMENT_FILES) {
+      rejectFiles(`最多选择 ${MAX_STATEMENT_FILES} 个流水文件。`);
+      return;
+    }
+    const oversizedFile = files.find((file) => file.size > MAX_STATEMENT_FILE_BYTES);
+    if (oversizedFile) {
+      rejectFiles(`${oversizedFile.name} 超过 4MB，请缩小日期范围后重新导出。`);
+      return;
+    }
+
+    setSelectedFiles(files);
+    setSourceLabel(files.length === 1 ? files[0].name : `${files.length} 个文件：${files.map((file) => file.name).join("、")}`);
+    setSummary(null);
+    setAiReport(null);
+    setTransactions([]);
+    setFormat(null);
     setError("");
     setPhase("idle");
   }
 
-  async function runAnalysis(input: File | ParseResult, label: string) {
+  async function runAnalysis(input: File[] | ParseResult, label: string) {
     setError("");
     setSummary(null);
     setAiReport(null);
 
     try {
       setPhase("parsing");
-      const result = input instanceof File ? await uploadStatement(input) : input;
+      const result = Array.isArray(input) ? await uploadStatements(input) : input;
       setPhase("calculating");
       const nextSummary = analyzeTransactions(result);
       setSummary(nextSummary);
@@ -97,7 +122,7 @@ export default function Home() {
   }
 
   function resetAnalysis() {
-    setSelectedFile(null);
+    setSelectedFiles([]);
     setSourceLabel("");
     setSummary(null);
     setTransactions([]);
@@ -133,7 +158,7 @@ export default function Home() {
 
         <div className="upload-panel">
           <div className="upload-heading">
-            <div><span className="step-label">STEP 01</span><h2>{summary ? "本次分析已完成" : "上传一份流水"}</h2></div>
+            <div><span className="step-label">STEP 01</span><h2>{summary ? "本次分析已完成" : "上传 1 至 3 份流水"}</h2></div>
             <span className="secure-badge">隐私模式</span>
           </div>
           <input
@@ -141,7 +166,8 @@ export default function Home() {
             className="sr-only"
             type="file"
             accept=".csv,.xlsx,.pdf"
-            onChange={(event) => chooseFile(event.target.files?.[0])}
+            multiple
+            onChange={(event) => chooseFiles(event.target.files ?? undefined)}
           />
           <button
             className={`dropzone ${dragging ? "is-dragging" : ""}`}
@@ -153,12 +179,13 @@ export default function Home() {
             onDrop={(event) => {
               event.preventDefault();
               setDragging(false);
-              chooseFile(event.dataTransfer.files?.[0]);
+              chooseFiles(event.dataTransfer.files);
             }}
           >
             <span className="upload-icon">{summary ? "✓" : "↑"}</span>
             <strong>{sourceLabel || "点击选择，或拖入文件"}</strong>
-            <small>支持 CSV、XLSX、带文字层的 PDF · 单个文件不超过 4MB</small>
+            <small>支持 CSV、XLSX、带文字层的 PDF · 最多 3 个，每个不超过 4MB</small>
+            {selectedFiles.length > 1 && <small>将合并统计，请避免上传日期范围重叠的重复流水</small>}
           </button>
 
           {busy ? (
@@ -170,10 +197,10 @@ export default function Home() {
             <button
               className="primary-button"
               type="button"
-              disabled={!selectedFile}
-              onClick={() => selectedFile && runAnalysis(selectedFile, selectedFile.name)}
+              disabled={selectedFiles.length === 0}
+              onClick={() => selectedFiles.length > 0 && runAnalysis(selectedFiles, sourceLabel)}
             >
-              {selectedFile ? "开始真实分析" : "选择文件后开始分析"}<span>→</span>
+              {selectedFiles.length > 1 ? "开始合并分析" : selectedFiles.length === 1 ? "开始真实分析" : "选择文件后开始分析"}<span>→</span>
             </button>
           )}
 
